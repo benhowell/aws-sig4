@@ -1,6 +1,6 @@
-(defproject org.sharetribe/aws-sig4 "0.1.3"
-  :description "Middleware to add AWS signature v4 signing to clj-http requests."
-  :url "http://github.com/sharetribe/aws-sig4"
+(defproject org.sharetribe/aws-sig4 "0.1.4"
+  :description "Forked middleware to add AWS signature v4 signing to clj-http requests."
+  :url "http://github.com/benhowell/aws-sig4"
   :license {:name "Apache License, Version 2.0"
             :url "http://www.apache.org/licenses/LICENSE-2.0"}
   :dependencies [[org.clojure/clojure "1.7.0"]

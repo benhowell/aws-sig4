@@ -4,21 +4,43 @@
             [clj-time.core :as time]
             [aws-sig4.auth :as auth]))
 
+
+(defn ensure-aws-date [request]
+  (let [headers (->> request
+                     :headers
+                     (map (fn [[n v]]
+                            [(str/lower-case n) v]))
+                     (into {}))]
+    (if (or (headers "date") (headers "x-amz-date"))
+      request
+      (assoc-in request
+                [:headers "X-Amz-Date"]
+                (format/unparse auth/basic-date-time-no-ms (time/now))))))
+
+
 (defn wrap-aws-date
   "clj-http middleware that adds an X-Amz-Date header into the request
   unless the request already defines a standard Date header."
   [client]
-  (fn [request]
-    (let [headers (->> request
-                       :headers
-                       (map (fn [[n v]]
-                              [(str/lower-case n) v]))
-                       (into {}))]
-      (if (or (headers "date") (headers "x-amz-date"))
-        (client request)
-        (client (assoc-in request
-                          [:headers "X-Amz-Date"]
-                          (format/unparse auth/basic-date-time-no-ms (time/now))))))))
+  (fn
+    ([request]
+     (client (ensure-aws-date request)))
+    ([request respond raise]
+     (client (ensure-aws-date request) respond raise))))
+
+
+(defn sign [request {:keys [token] :as aws-opts}]
+  (let [hashed-payload (auth/hashed-payload (:body request))
+        auth (-> request
+                 (auth/canonical-request hashed-payload)
+                 (auth/string-to-sign aws-opts)
+                 (auth/authorization aws-opts)
+                 :authorization)]
+    (cond-> request
+      true (update-in [:headers] assoc
+                      "Authorization" auth
+                      "x-amz-content-sha256" hashed-payload)
+      token (assoc-in [:headers "X-Amz-Security-Token"] token))))
 
 
 (defn build-wrap-aws-auth
@@ -39,16 +61,8 @@
   {:pre [(some? region) (some? service)
          (some? access-key) (some? secret-key)]}
   (fn [client]
-    (fn [request]
-      (let [hashed-payload (auth/hashed-payload (:body request))
-            auth (-> request
-                     (auth/canonical-request hashed-payload)
-                     (auth/string-to-sign aws-opts)
-                     (auth/authorization aws-opts)
-                     :authorization)
-            sreq (cond-> request
-                   true (update-in [:headers] assoc
-                                   "Authorization" auth
-                                   "x-amz-content-sha256" hashed-payload)
-                   token (assoc-in [:headers "X-Amz-Security-Token"] token))]
-        (client sreq)))))
+    (fn
+      ([request]
+       (client (sign request aws-opts)))
+      ([request respond raise]
+       (client (sign request aws-opts) respond raise)))))
